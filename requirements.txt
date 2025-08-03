@@ -4,3 +4,4 @@ sentence-transformers==2.2.2
 openai
 requests
 python-dotenv
+huggingface_hub==0.14.1
