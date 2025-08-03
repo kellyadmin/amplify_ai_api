@@ -1,1 +1,7 @@
--e "fastapi\nuvicorn\npython-dotenv\nsentence-transformers\nsupabase" 
+fastapi
+uvicorn[standard]
+sentence-transformers==2.2.2
+openai
+requests
+python-dotenv
+supabase-py
