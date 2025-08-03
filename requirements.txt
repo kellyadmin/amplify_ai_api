@@ -4,4 +4,3 @@ sentence-transformers==2.2.2
 openai
 requests
 python-dotenv
-git+https://github.com/supabase-community/supabase-py.git@main#egg=supabase-py

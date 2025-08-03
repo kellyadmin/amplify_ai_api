@@ -1,7 +1,13 @@
-fastapi
-uvicorn[standard]
-sentence-transformers==2.2.2
-openai
-requests
-python-dotenv
-git+https://github.com/supabase-community/supabase-py.git@main#egg=supabase-py
+services:
+  - type: web
+    name: ai-recommender-api
+    env: python
+    plan: free
+    buildCommand: |
+      pip install --upgrade pip
+      pip install git+https://github.com/supabase-community/supabase-py.git@main#egg=supabase-py
+      pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.10
