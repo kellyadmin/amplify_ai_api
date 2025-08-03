@@ -1,6 +1,6 @@
 fastapi
 uvicorn[standard]
-sentence-transformers==2.2.2
+sentence-transformers==2.2.0
 openai
 requests
 python-dotenv
