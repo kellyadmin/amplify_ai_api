@@ -1,7 +1,16 @@
-fastapi
-uvicorn[standard]
+# Core FastAPI and Uvicorn dependencies
+fastapi==0.95.1
+uvicorn[standard]==0.21.1
+
+# General ML libraries
+scipy==1.11.4
+
+# Transformers and Sentence-Transformers
+transformers==4.31.0
 sentence-transformers==2.2.2
-openai
-requests
-python-dotenv
-supabase-py
+
+# This is the crucial change to avoid the size limit.
+# The --extra-index-url flag tells pip to look for the CPU-only version.
+# Render's build environment will automatically use this.
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.2.0
