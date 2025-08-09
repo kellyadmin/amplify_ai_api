@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Core FastAPI and Uvicorn dependencies
 fastapi==0.95.1
 uvicorn[standard]==0.21.1
@@ -14,3 +15,11 @@ sentence-transformers==2.2.2
 # Render's build environment will automatically use this.
 --extra-index-url https://download.pytorch.org/whl/cpu
 torch==2.2.0
+=======
+uvicorn[standard]
+sentence-transformers==2.2.0
+openai
+requests
+python-dotenv
+huggingface_hub==0.14.1
+>>>>>>> b5e96e807d22675fdaa793cca50fb1989cbfa359
