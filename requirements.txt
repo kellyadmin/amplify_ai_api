@@ -1,6 +1,5 @@
 fastapi==0.95.1
 uvicorn[standard]==0.21.1
-scipy==1.11.4
 transformers==4.31.0
 sentence-transformers==2.2.2
 openai
@@ -9,3 +8,4 @@ python-dotenv
 huggingface_hub==0.14.1
 --extra-index-url https://download.pytorch.org/whl/cpu
 torch==2.2.0
+https://github.com/scipy/scipy/releases/download/v1.11.4/scipy-1.11.4-cp311-cp311-win_amd64.whl
