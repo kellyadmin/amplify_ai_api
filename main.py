@@ -34,11 +34,19 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Initialize models to None. They will be assigned in the try block.
+# This prevents NameError if loading fails.
+model = None
+text_generator = None
+
 try:
+    # Sentence Transformer for text embeddings (e.g., for song query similarity)
     model = SentenceTransformer('paraphrase-MiniLM-L3-v2')
+    # Text generation model (e.g., for chat responses)
     text_generator = pipeline("text-generation", model="sshleifer/tiny-distilgpt2")
 except Exception as e:
     print(f"Error loading AI models: {e}")
+    print("AI models are not loaded. Chat and playlist recommendation features will be unavailable.")
 
 # --- Pydantic Models for Request/Response Validation ---
 class ChatRequest(BaseModel):
@@ -56,6 +64,8 @@ async def root():
 
 @app.get("/recommend")
 async def recommend_songs(query: str = Query(..., description="Text query for song recommendation"), top_k: int = 5):
+    if not model:
+        raise HTTPException(status_code=503, detail="AI embedding model not loaded. Please check server logs.")
     try:
         emb = model.encode(query).tolist()
         return {"query": query, "embedding": emb[:top_k], "status": "success"}
@@ -64,6 +74,8 @@ async def recommend_songs(query: str = Query(..., description="Text query for so
 
 @app.post("/chat")
 async def chat(request: ChatRequest):
+    if not text_generator:
+        raise HTTPException(status_code=503, detail="AI text generation model not loaded. Please check server logs.")
     prompt = request.message
     try:
         result = text_generator(prompt, max_length=50, num_return_sequences=1)
@@ -101,6 +113,8 @@ async def recommend_playlist(request: PlaylistRequest):
     """
     if not supabase:
         raise HTTPException(status_code=503, detail="Supabase client not initialized.")
+    if not text_generator:
+        raise HTTPException(status_code=503, detail="AI text generation model not loaded. Please check server logs.")
 
     user_id = request.user_id
     mood = request.mood
@@ -108,22 +122,18 @@ async def recommend_playlist(request: PlaylistRequest):
 
     try:
         # 1. Store/Update User Profile in Supabase
-        # Corrected: .execute() returns a response object with .data and .count
         response = supabase.table('user_profiles').select('*', count='exact').eq('user_id', user_id).execute()
         user_data = response.data
-        user_count = response.count # Use user_count to avoid conflict with `count` keyword
+        user_count = response.count
 
-        if user_data and len(user_data) > 0: # Check if data exists in the list
-            # Update existing user profile
+        if user_data and len(user_data) > 0:
             updated_data = {
                 "last_mood": mood,
                 "liked_songs": liked_songs,
                 "last_active": "now()"
             }
-            # Use data[0] to get the existing record's primary key if needed, or update by user_id
             supabase.table('user_profiles').update(updated_data).eq('user_id', user_id).execute()
         else:
-            # Create new user profile
             new_user_data = {
                 "user_id": user_id,
                 "last_mood": mood,
