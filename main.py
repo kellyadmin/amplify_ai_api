@@ -17,7 +17,7 @@ if not SUPABASE_URL or not SUPABASE_KEY:
 else:
     supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-# --- NEW: RPC Name for Supabase Vector Search Function ---
+# --- RPC Name for Supabase Vector Search Function ---
 RPC_NAME_SIMILAR_SONGS = "match_songs_by_embedding"
 
 # --- FastAPI App & Model Loading ---
@@ -35,9 +35,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Initialize embedding model to None. It will be assigned in the try block.
-model = None # For embeddings (SentenceTransformer)
-# text_generator is REMOVED as it's causing memory issues for the chat feature.
+# Initialize embedding model.
+model = None 
 
 try:
     # Sentence Transformer for text embeddings (for similarity search)
@@ -49,43 +48,17 @@ except Exception as e:
 
 
 # --- Pydantic Models for Request/Response Validation ---
-# ChatRequest is removed as /chat endpoint is being removed.
-# class ChatRequest(BaseModel):
-#     message: str
-
 class PlaylistRequest(BaseModel):
     user_id: str
     mood: str
     liked_songs: str = "" # Comma-separated string of liked songs
+    match_threshold: float = 0.05 # NEW: Configurable threshold from frontend
+    match_count: int = 10 # NEW: Configurable match count
 
 # --- API Endpoints ---
 @app.get("/")
 async def root():
     return {"message": "Amplify AI API is running"}
-
-# Removed /recommend endpoint as it's not directly used by the current frontend for playlist recs
-# @app.get("/recommend")
-# async def recommend_songs(query: str = Query(..., description="Text query for song recommendation"), top_k: int = 5):
-#     if not model:
-#         raise HTTPException(status_code=503, detail="AI embedding model not loaded. Please check server logs.")
-#     try:
-#         emb = model.encode(query).tolist()
-#         return {"query": query, "embedding": emb[:top_k], "status": "success"}
-#     except Exception as e:
-#         return {"query": query, "error": str(e), "status": "failed"}
-
-# Removed /chat endpoint as text_generator is removed.
-# @app.post("/chat")
-# async def chat(request: ChatRequest):
-#     if not text_generator: # This check would now always raise HTTPException
-#         raise HTTPException(status_code=503, detail="AI text generation model not loaded. Please check server logs.")
-#     prompt = request.message
-#     try:
-#         result = text_generator(prompt, max_length=50, num_return_sequences=1)
-#         generated_text = result[0]['generated_text']
-#         return {"reply": generated_text, "status": "success"}
-#     except Exception as e:
-#         return {"reply": f"Error generating response: {e}", "status": "failed"}
 
 @app.get("/search_song_db")
 async def search_song_db(query: str = Query(..., description="Query to search song database")):
@@ -111,7 +84,7 @@ async def recommend_playlist(request: PlaylistRequest):
     Recommends actual songs based on user mood/liked songs by performing a vector similarity search in Supabase.
     
     Args:
-        request (PlaylistRequest): Contains user_id, mood, and liked_songs.
+        request (PlaylistRequest): Contains user_id, mood, liked_songs, match_threshold, and match_count.
     """
     if not supabase:
         raise HTTPException(status_code=503, detail="Supabase client not initialized.")
@@ -121,6 +94,12 @@ async def recommend_playlist(request: PlaylistRequest):
     user_id = request.user_id
     mood = request.mood
     liked_songs_list = [s.strip() for s in request.liked_songs.split(',') if s.strip()] # Clean and split
+    match_threshold = request.match_threshold # Use threshold from request
+    match_count = request.match_count # Use count from request
+
+    # Add logging for debugging
+    print(f"Received playlist request for User ID: {user_id}, Mood: '{mood}', Liked Songs: {liked_songs_list}")
+    print(f"Using match_threshold: {match_threshold}, match_count: {match_count}")
 
     try:
         # 1. Store/Update User Profile in Supabase
@@ -141,24 +120,27 @@ async def recommend_playlist(request: PlaylistRequest):
             supabase.table('user_profiles').insert(user_profile_data).execute()
 
         # 2. Generate Embedding for the Recommendation Query
-        # Combine mood and liked songs for a richer query embedding
         combined_query = f"{mood} songs"
         if liked_songs_list:
             combined_query += f" similar to {', '.join(liked_songs_list)}"
         
         query_embedding = model.encode(combined_query).tolist()
+        # Add logging for debugging
+        print(f"Generated query embedding (first 5 dims): {query_embedding[:5]}...")
 
         # 3. Call Supabase RPC for Similar Songs (Vector Search)
         rpc_response = supabase.rpc(
             RPC_NAME_SIMILAR_SONGS, 
             {
                 "query_embedding": query_embedding,
-                "match_threshold": 0.1, # Keep this low for testing
-                "match_count": 10       # Number of top similar songs to return
+                "match_threshold": match_threshold, # Use dynamic threshold
+                "match_count": match_count          # Use dynamic count
             }
         ).execute()
 
         recommended_songs = rpc_response.data
+        # Add logging for debugging
+        print(f"Raw RPC Response Data: {recommended_songs}")
         
         return {
             "user_id": user_id,
