@@ -9,3 +9,4 @@ python-dotenv
 huggingface_hub==0.14.1
 --extra-index-url https://download.pytorch.org/whl/cpu
 torch==2.2.0
+supabase==2.5.0
