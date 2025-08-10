@@ -13,9 +13,8 @@ SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 
 # Initialize Supabase client
 if not SUPABASE_URL or not SUPABASE_KEY:
-    # Log an error if keys are missing but don't stop app for immediate testing
     print("WARNING: Supabase URL or Key not found in environment variables. Supabase features will not work.")
-    supabase = None # Set to None to allow app startup even without Supabase
+    supabase = None
 else:
     supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
@@ -40,14 +39,11 @@ try:
     text_generator = pipeline("text-generation", model="sshleifer/tiny-distilgpt2")
 except Exception as e:
     print(f"Error loading AI models: {e}")
-    # In a production app, you might want to raise an exception or
-    # have fallback logic if models fail to load.
 
 # --- Pydantic Models for Request/Response Validation ---
 class ChatRequest(BaseModel):
     message: str
 
-# New Pydantic model for playlist recommendation request
 class PlaylistRequest(BaseModel):
     user_id: str
     mood: str
@@ -112,16 +108,19 @@ async def recommend_playlist(request: PlaylistRequest):
 
     try:
         # 1. Store/Update User Profile in Supabase
-        # Check if user exists
-        user_data, count = supabase.table('user_profiles').select('*').eq('user_id', user_id).execute()
-        
-        if user_data and user_data[0]:
+        # Corrected: .execute() returns a response object with .data and .count
+        response = supabase.table('user_profiles').select('*', count='exact').eq('user_id', user_id).execute()
+        user_data = response.data
+        user_count = response.count # Use user_count to avoid conflict with `count` keyword
+
+        if user_data and len(user_data) > 0: # Check if data exists in the list
             # Update existing user profile
             updated_data = {
                 "last_mood": mood,
-                "liked_songs": liked_songs, # Overwrite or merge as per your logic
-                "last_active": "now()" # Update last active timestamp
+                "liked_songs": liked_songs,
+                "last_active": "now()"
             }
+            # Use data[0] to get the existing record's primary key if needed, or update by user_id
             supabase.table('user_profiles').update(updated_data).eq('user_id', user_id).execute()
         else:
             # Create new user profile
@@ -135,7 +134,6 @@ async def recommend_playlist(request: PlaylistRequest):
             supabase.table('user_profiles').insert(new_user_data).execute()
 
         # 2. Generate Playlist Description using AI
-        # This is a descriptive recommendation, not actual song matching yet.
         ai_prompt = f"Create a playlist description for someone feeling '{mood}'. Consider popular songs related to this mood."
         if liked_songs:
             ai_prompt += f" They also like songs such as {', '.join(liked_songs)}."
@@ -154,4 +152,8 @@ async def recommend_playlist(request: PlaylistRequest):
     except Exception as e:
         print(f"Error recommending playlist: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to generate playlist: {e}")
+
+# --- Local Development Server (Optional for Deployment) ---
+if __name__ == "__main__":
+    uvicorn.run(app, host="0.0.0.0", port=8000)
 
