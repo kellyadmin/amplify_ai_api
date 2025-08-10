@@ -23,7 +23,7 @@ try:
     # Text generation model (e.g., for chat responses)
     # GPT-2 is quite large. Consider 'distilgpt2' for a smaller alternative, or
     # quantize this model.
-    text_generator = pipeline("text-generation", model="distilgpt2")
+    text_generator = pipeline("text-generation", model="sshleifer/tiny-distilgpt2")
 except Exception as e:
     print(f"Error loading AI models: {e}")
     # Depending on your use case, you might want to raise an exception or
