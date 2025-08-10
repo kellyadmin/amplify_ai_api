@@ -18,6 +18,8 @@ if not SUPABASE_URL or not SUPABASE_KEY:
 else:
     supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
+# --- NEW: RPC Name for Supabase Vector Search Function ---
+RPC_NAME_SIMILAR_SONGS = "match_songs_by_embedding"
 
 # --- FastAPI App & Model Loading ---
 os.environ["TRANSFORMERS_CACHE"] = "/app/cache"
@@ -35,18 +37,17 @@ app.add_middleware(
 )
 
 # Initialize models to None. They will be assigned in the try block.
-# This prevents NameError if loading fails.
-model = None
-text_generator = None
+model = None # For embeddings
+text_generator = None # For chat
 
 try:
-    # Sentence Transformer for text embeddings (e.g., for song query similarity)
+    # Sentence Transformer for text embeddings (for similarity search)
     model = SentenceTransformer('paraphrase-MiniLM-L3-v2')
-    # Text generation model (e.g., for chat responses)
+    # Text generation model (for chat responses only, no longer for playlist descriptions)
     text_generator = pipeline("text-generation", model="sshleifer/tiny-distilgpt2")
 except Exception as e:
     print(f"Error loading AI models: {e}")
-    print("AI models are not loaded. Chat and playlist recommendation features will be unavailable.")
+    print("AI models are not loaded. Some features will be unavailable.")
 
 # --- Pydantic Models for Request/Response Validation ---
 class ChatRequest(BaseModel):
@@ -87,8 +88,7 @@ async def chat(request: ChatRequest):
 @app.get("/search_song_db")
 async def search_song_db(query: str = Query(..., description="Query to search song database")):
     """
-    Searches a Supabase 'songs' table for titles matching the query.
-    Assumes you have a table named 'songs' in Supabase with a 'title' column.
+    Searches a Supabase 'songs' table for titles matching the query (case-insensitive LIKE).
     """
     if not supabase:
         raise HTTPException(status_code=503, detail="Supabase client not initialized.")
@@ -106,57 +106,65 @@ async def search_song_db(query: str = Query(..., description="Query to search so
 @app.post("/recommend_playlist")
 async def recommend_playlist(request: PlaylistRequest):
     """
-    Generates a playlist description based on user mood and stores/retrieves user data.
+    Recommends actual songs based on user mood/liked songs by performing a vector similarity search in Supabase.
     
     Args:
         request (PlaylistRequest): Contains user_id, mood, and liked_songs.
     """
     if not supabase:
         raise HTTPException(status_code=503, detail="Supabase client not initialized.")
-    if not text_generator:
-        raise HTTPException(status_code=503, detail="AI text generation model not loaded. Please check server logs.")
+    if not model: # We need the embedding model for this
+        raise HTTPException(status_code=503, detail="AI embedding model not loaded for similarity search.")
 
     user_id = request.user_id
     mood = request.mood
-    liked_songs = request.liked_songs.split(',') if request.liked_songs else []
+    liked_songs_list = request.liked_songs.split(',') if request.liked_songs else []
 
     try:
         # 1. Store/Update User Profile in Supabase
         response = supabase.table('user_profiles').select('*', count='exact').eq('user_id', user_id).execute()
         user_data = response.data
-        user_count = response.count
+        
+        user_profile_data = {
+            "last_mood": mood,
+            "liked_songs": liked_songs_list, # Store as array in Supabase
+            "last_active": "now()"
+        }
 
         if user_data and len(user_data) > 0:
-            updated_data = {
-                "last_mood": mood,
-                "liked_songs": liked_songs,
-                "last_active": "now()"
-            }
-            supabase.table('user_profiles').update(updated_data).eq('user_id', user_id).execute()
+            supabase.table('user_profiles').update(user_profile_data).eq('user_id', user_id).execute()
         else:
-            new_user_data = {
-                "user_id": user_id,
-                "last_mood": mood,
-                "liked_songs": liked_songs,
-                "created_at": "now()",
-                "last_active": "now()"
+            user_profile_data["user_id"] = user_id
+            user_profile_data["created_at"] = "now()"
+            supabase.table('user_profiles').insert(user_profile_data).execute()
+
+        # 2. Generate Embedding for the Recommendation Query
+        # Combine mood and liked songs for a richer query embedding
+        combined_query = f"{mood} songs"
+        if liked_songs_list:
+            combined_query += f" similar to {', '.join(liked_songs_list)}"
+        
+        query_embedding = model.encode(combined_query).tolist()
+
+        # 3. Call Supabase RPC for Similar Songs (Vector Search)
+        # This calls the SQL function created in Supabase (match_songs_by_embedding)
+        rpc_response = supabase.rpc(
+            RPC_NAME_SIMILAR_SONGS, 
+            {
+                "query_embedding": query_embedding,
+                "match_threshold": 0.5, # Adjust this value (0 to 1, higher for more similar)
+                "match_count": 10       # Number of top similar songs to return
             }
-            supabase.table('user_profiles').insert(new_user_data).execute()
+        ).execute()
 
-        # 2. Generate Playlist Description using AI
-        ai_prompt = f"Create a playlist description for someone feeling '{mood}'. Consider popular songs related to this mood."
-        if liked_songs:
-            ai_prompt += f" They also like songs such as {', '.join(liked_songs)}."
-
-        generated_result = text_generator(ai_prompt, max_length=150, num_return_sequences=1)
-        playlist_description = generated_result[0]['generated_text']
-
+        recommended_songs = rpc_response.data
+        
         return {
             "user_id": user_id,
             "mood": mood,
-            "liked_songs": liked_songs,
-            "playlist_description": playlist_description,
-            "message": "User profile updated and playlist description generated.",
+            "liked_songs": liked_songs_list,
+            "recommended_songs": recommended_songs, # List of song objects found
+            "message": "User profile updated and similar songs recommended.",
             "status": "success"
         }
     except Exception as e:
